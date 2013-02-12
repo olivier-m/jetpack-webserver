@@ -1,0 +1,10 @@
+{
+    "name": "webserver",
+    "fullName": "Jetpack webserver",
+    "description": "Webserver package for Addon-SDK",
+    "author": "Olivier Meunier <olivier@neokraft.net>",
+    "version": "1.0",
+    "license": "MPL 2.0",
+
+    "lib": ""
+}
