@@ -3,11 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-const {components, Ci} = require("chrome");
+const {components, Cc, Ci} = require("chrome");
 const {ByteReader} = require("sdk/io/byte-streams");
 const querystring = require("sdk/querystring");
 
 const {nsHttpServer} = require("./httpd");
+
+const PR_UINT32_MAX = Math.pow(2, 32) - 1;
 
 const create = exports.create = function() {
     let server = new nsHttpServer();
@@ -78,7 +80,7 @@ const HttpRequest = function(request) {
     // URL
     this.url = request.path;
     if (request.queryString) {
-        this.url += '?' + request.queryString;
+        this.url += "?" + request.queryString;
     }
 
     // HTTP Version
@@ -119,16 +121,57 @@ const HttpResponse = function(response) {
     this.statusCode = 200;
     this._response = response;
     this._headersSent = false;
+    this._encoding = null;
 
     response.processAsync();
 };
 
 HttpResponse.prototype = {
+    setEncoding: function(encoding) {
+        this._encoding = encoding;
+    },
+
+    header: function(name) {
+        if (name in this.headers) {
+            return this.headers[name];
+        }
+        return "";
+    },
+
+    setHeader: function(name, value) {
+        this.headers[name] = value;
+    },
+
     write: function(data) {
         if (!this._headersSent) {
             this._sendHeaders();
         }
-        this._response.write(data);
+
+        if (data == "" || !this._encoding) {
+            this._response.write(data);
+        }
+        else if (this._encoding == "binary") {
+            let pipe = Cc["@mozilla.org/pipe;1"].createInstance(Ci.nsIPipe);
+            pipe.init(true, false, 8192, PR_UINT32_MAX, null);
+
+            let binOutput = Cc["@mozilla.org/binaryoutputstream;1"]
+                            .createInstance(Ci.nsIBinaryOutputStream);
+            binOutput.setOutputStream(pipe.outputStream);
+            binOutput.writeBytes(data, data.length);
+
+            this._response.bodyOutputStream.writeFrom(pipe.inputStream, data.length);
+        }
+        else {
+            let pipe = Cc["@mozilla.org/pipe;1"].createInstance(Ci.nsIPipe);
+            pipe.init(true, false, 8192, PR_UINT32_MAX, null);
+
+            let os = Cc["@mozilla.org/intl/converter-output-stream;1"]
+                        .createInstance(Ci.nsIConverterOutputStream);
+
+            os.init(pipe.outputStream, this._encoding, 0, 0x0000);
+            os.writeString(data);
+            this._response.bodyOutputStream.writeFrom(pipe.inputStream, data.length);
+        }
     },
 
     writeHead: function(statusCode, headers) {
@@ -147,15 +190,20 @@ HttpResponse.prototype = {
         if (!this._headersSent) {
             this._sendHeaders();
             this._response.processAsync();
-            this._response.write('');
+            this._response.write("");
         }
         this._response.finish();
     },
 
+    closeGracefully: function() {
+        this.write("");
+        this._response.finish();
+    },
+
     _sendHeaders: function() {
-        let desc = httpCode[this.statusCode] || '';
+        let desc = httpCode[this.statusCode] || "";
         this._response.processAsync();
-        this._response.setStatusLine('1.1', this.statusCode, desc);
+        this._response.setStatusLine("1.1", this.statusCode, desc);
         for (let h in this.headers) {
             this._response.setHeader(h, this.headers[h], false);
         }
@@ -165,43 +213,43 @@ HttpResponse.prototype = {
 
 
 const httpCode = {
-    '100': "Continue",
-    '101':'Switching Protocols',
-    '200': 'OK',
-    '201':'Created',
-    '202':'Accepted',
-    '203':'Non-Authoritative Information',
-    '204':'No Content',
-    '205':'Reset Content',
-    '206':'Partial Content',
-    '300':'Multiple Choices',
-    '301':'Moved Permanently',
-    '302':'Found',
-    '303':'See Other',
-    '304':'Not Modified',
-    '305':'Use Proxy',
-    '307':'Temporary Redirect',
-    '400': "Bad Request",
-    '401': "Unauthorized",
-    '402': "Payment Required",
-    '403': "Forbidden",
-    '404': "Not Found",
-    '405': "Method Not Allowed",
-    '406': "Not Acceptable",
-    '407': "Proxy Authentication Required",
-    '408': "Request Timeout",
-    '409': "Conflict",
-    '410': "Gone",
-    '411': "Length Required",
-    '412': "Precondition Failed",
-    '413': "Request Entity Too Large",
-    '414': "Request-URI Too Long",
-    '415': "Unsupported Media Type",
-    '417': "Expectation Failed",
-    '500': "Internal Server Error",
-    '501': "Not Implemented",
-    '502': "Bad Gateway",
-    '503': "Service Unavailable",
-    '504': "Gateway Timeout",
-    '505': "HTTP Version Not Supported"
+    "100": "Continue",
+    "101":"Switching Protocols",
+    "200": "OK",
+    "201":"Created",
+    "202":"Accepted",
+    "203":"Non-Authoritative Information",
+    "204":"No Content",
+    "205":"Reset Content",
+    "206":"Partial Content",
+    "300":"Multiple Choices",
+    "301":"Moved Permanently",
+    "302":"Found",
+    "303":"See Other",
+    "304":"Not Modified",
+    "305":"Use Proxy",
+    "307":"Temporary Redirect",
+    "400": "Bad Request",
+    "401": "Unauthorized",
+    "402": "Payment Required",
+    "403": "Forbidden",
+    "404": "Not Found",
+    "405": "Method Not Allowed",
+    "406": "Not Acceptable",
+    "407": "Proxy Authentication Required",
+    "408": "Request Timeout",
+    "409": "Conflict",
+    "410": "Gone",
+    "411": "Length Required",
+    "412": "Precondition Failed",
+    "413": "Request Entity Too Large",
+    "414": "Request-URI Too Long",
+    "415": "Unsupported Media Type",
+    "417": "Expectation Failed",
+    "500": "Internal Server Error",
+    "501": "Not Implemented",
+    "502": "Bad Gateway",
+    "503": "Service Unavailable",
+    "504": "Gateway Timeout",
+    "505": "HTTP Version Not Supported"
 };
