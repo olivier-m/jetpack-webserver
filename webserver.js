@@ -16,8 +16,8 @@ const create = exports.create = function() {
 
     return {
         listen: function(port, callback) {
+            let host = "localhost";
             if (typeof(port) === "string" && port.indexOf(":") !== -1) {
-                let host;
                 [host, port] = port.split(":");
                 port = parseInt(port);
                 if (host !== "0.0.0.0") {
@@ -29,14 +29,17 @@ const create = exports.create = function() {
                 this.registerPath("/", callback);
             }
 
-            server.start(port);
+            server._start(port, host);
             return true;
         },
         close: function() {
             server.stop(function() {});
         },
+        get host() {
+            return server._host;
+        },
         get port() {
-            return server.identity.primaryPort;
+            return server._port;
         },
 
         // Extension, not compatible with PhantomJS 1.8 API
